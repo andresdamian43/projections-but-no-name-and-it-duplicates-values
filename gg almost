@@ -1,0 +1,65 @@
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.impute import SimpleImputer
+from pandas import ExcelWriter
+
+# Load historical player data from CSV
+historical_data = pd.read_csv('C:/Users/andre/AppData/Local/Programs/Python/Python311/merged_player_stats_cleaned.csv')
+
+# Select relevant features
+features = ['Tm', 'FantPos', 'Age', 'G', 'GS', 'Cmp', 'Att', 'Yds', 'TD', 'Int', 'Att.1', 'Yds.1',
+            'Y/A', 'TD.1', 'Tgt', 'Rec', 'Yds.2', 'Y/R', 'TD.2', 'Fmb', 'FL', 'TD.3', '2PM', '2PP',
+            'FantPt', 'PPR', 'DKPt', 'FDPt', 'VBD', 'PosRank', 'OvRank', 'Year']
+
+# Filter the data based on the year
+selected_data = historical_data.loc[historical_data['Year'] >= 2017, features]
+
+# Split the data into training and testing sets
+train_data = selected_data.loc[selected_data['Year'] < 2022]
+test_data = selected_data.loc[selected_data['Year'] == 2022].copy()  # Make a copy of the test_data DataFrame
+
+# Verify the number of rows in test_data after splitting
+print("Number of rows in test_data:", test_data.shape[0])
+
+# Separate categorical and numerical columns
+categorical_columns = ['Tm', 'FantPos']
+numerical_columns = list(set(features) - set(categorical_columns))
+
+# One-hot encode categorical columns
+encoder = OneHotEncoder(sparse=False, drop='first', dtype=int)
+encoded_train_data = pd.DataFrame(encoder.fit_transform(train_data[categorical_columns]))
+encoded_test_data = pd.DataFrame(encoder.transform(test_data[categorical_columns]))
+
+# Assign column names to encoded data frames
+encoded_train_data.columns = encoder.get_feature_names_out(categorical_columns)
+encoded_test_data.columns = encoder.get_feature_names_out(categorical_columns)
+
+# Combine encoded categorical data with numerical data
+X_train = pd.concat([train_data[numerical_columns], encoded_train_data], axis=1)
+X_test = pd.concat([test_data[numerical_columns], encoded_test_data], axis=1)
+
+# Prepare the data for modeling
+y_train = train_data['FantPt']
+
+# Create and train the Random Forest Regressor model
+model = RandomForestRegressor()
+model.fit(X_train, y_train)
+
+# Impute missing values in X_test
+imputer = SimpleImputer(strategy='mean')
+X_test_imputed = pd.DataFrame(imputer.fit_transform(X_test), columns=X_test.columns)
+
+# Make projections for the upcoming season with the imputed data
+projected_points = model.predict(X_test_imputed)
+
+# Repeat player names to match the length of projected_points
+test_data = test_data.reindex(test_data.index.repeat(2)).reset_index(drop=True)
+test_data['ProjectedPts'] = projected_points
+
+# Export the data to an Excel file
+with ExcelWriter('projected_data.xlsx') as writer:
+    test_data.to_excel(writer, index=False, sheet_name='Projections')
+
+print("Data exported successfully.")
